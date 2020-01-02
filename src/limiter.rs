@@ -79,7 +79,8 @@ impl<I: Copy + Sub<Output = Duration>> Bucket<I> {
 ///
 /// # Examples
 ///
-/// ```rust
+#[cfg_attr(feature = "standard-clock", doc = "```rust")]
+#[cfg_attr(not(feature = "standard-clock"), doc = "```ignore")]
 /// use async_speed_limit::Limiter;
 /// use std::time::Duration;
 ///
@@ -175,7 +176,8 @@ macro_rules! declare_limiter {
         /// Upload some small files atomically in parallel, while maintaining a
         /// global speed limit of 1 MiB/s.
         ///
-        /// ```rust
+        #[cfg_attr(feature = "standard-clock", doc = "```rust")]
+        #[cfg_attr(not(feature = "standard-clock"), doc = "```ignore")]
         /// use async_speed_limit::Limiter;
         /// use futures_util::future::try_join_all;
         ///
