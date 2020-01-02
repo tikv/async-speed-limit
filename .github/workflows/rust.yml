@@ -1,0 +1,42 @@
+name: Rust
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      fail-fast: true
+      matrix:
+        rustup:
+          - toolchain: stable
+            components: "clippy, rustfmt"
+          - toolchain: nightly
+            components: ""
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions-rs/toolchain@v1
+      name: Install Rust
+      with:
+        toolchain: ${{ matrix.rustup.toolchain }}
+        profile: minimal
+        components: ${{ matrix.rustup.components }}
+        default: true
+    - name: Clippy
+      run: cargo clippy
+      if: contains(matrix.rustup.components, 'clippy')
+    - name: Format
+      run: cargo fmt -- --check
+      if: contains(matrix.rustup.components, 'rustfmt')
+    - name: Test (no features)
+      run: cargo test --no-default-features
+    - name: Test (all features)
+      run: cargo test --all-features
+      if: matrix.rustup.toolchain == 'nightly'
