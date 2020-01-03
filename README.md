@@ -1,6 +1,10 @@
 async-speed-limit
 =================
 
+[![Build status](https://github.com/tikv/async-speed-limit/workflows/Rust/badge.svg)](https://github.com/tikv/async-speed-limit/actions?query=workflow%3ARust)
+[![Latest Version](https://img.shields.io/crates/v/async-speed-limit.svg)](https://crates.io/crates/async-speed-limit)
+[![Documentation](https://img.shields.io/badge/api-rustdoc-blue.svg)](https://docs.rs/async-speed-limit)
+
 Asynchronously speed-limiting multiple byte streams (`AsyncRead` and `AsyncWrite`).
 
 ## Usage
