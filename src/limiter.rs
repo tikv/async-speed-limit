@@ -980,6 +980,56 @@ mod tests_with_manual_clock {
         fx.set_time(4_169_921_875);
         assert_eq!(fx.total_bytes_consumed(), 2135);
     }
+
+    #[test]
+    fn set_infinite_speed_limit() {
+        let mut fx = Fixture::new();
+
+        fx.spawn(|sfx| {
+            async move {
+                for _ in 0..1000 {
+                    sfx.consume(512).await;
+                }
+                sfx.sleep(1).await;
+                for _ in 0..1000 {
+                    sfx.consume(512).await;
+                }
+                sfx.sleep(1).await;
+                sfx.consume(512).await;
+                sfx.consume(512).await;
+            }
+        });
+
+        fx.set_time(0);
+        assert_eq!(fx.total_bytes_consumed(), 512);
+        fx.set_time(1_000_000_000);
+        assert_eq!(fx.total_bytes_consumed(), 1024);
+
+        // change speed limit to infinity...
+        fx.set_speed_limit(std::f64::INFINITY);
+
+        // should not affect tasks still waiting
+        fx.set_time(1_500_000_000);
+        assert_eq!(fx.total_bytes_consumed(), 1024);
+
+        // but all future consumptions will be unlimited.
+        fx.set_time(2_000_000_000);
+        assert_eq!(fx.total_bytes_consumed(), 512_000);
+
+        // should act normal for keeping speed limit at infinity.
+        fx.set_speed_limit(std::f64::INFINITY);
+        fx.set_time(2_000_000_001);
+        assert_eq!(fx.total_bytes_consumed(), 1_024_000);
+
+        // reducing speed limit to normal.
+        fx.set_speed_limit(512.0);
+        fx.set_time(2_000_000_002);
+        assert_eq!(fx.total_bytes_consumed(), 1_024_512);
+        fx.set_time(3_000_000_002);
+        assert_eq!(fx.total_bytes_consumed(), 1_025_024);
+        fx.set_time(4_000_000_002);
+        assert_eq!(fx.total_bytes_consumed(), 1_025_024);
+    }
 }
 
 #[cfg(test)]
