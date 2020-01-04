@@ -44,6 +44,8 @@ impl<I> Bucket<I> {
     /// Consumes the given number of bytes from the bucket.
     ///
     /// Returns the duration we need for the consumed bytes to recover.
+    ///
+    /// This method should only be called when the speed is finite.
     fn consume(&mut self, size: f64) -> Duration {
         self.value -= size;
         if self.value > 0.0 {
@@ -61,12 +63,21 @@ impl<I> Bucket<I> {
     fn set_speed_limit(&mut self, new_speed_limit: f64) {
         let old_capacity = self.capacity();
         self.speed_limit = new_speed_limit;
-        self.value += self.capacity() - old_capacity;
+        if new_speed_limit.is_finite() {
+            let new_capacity = self.capacity();
+            if old_capacity.is_finite() {
+                self.value += new_capacity - old_capacity;
+            } else {
+                self.value = new_capacity;
+            }
+        }
     }
 }
 
 impl<I: Copy + Sub<Output = Duration>> Bucket<I> {
     /// Refills the bucket to match the value at current time.
+    ///
+    /// This method should only be called when the speed is finite.
     fn refill(&mut self, now: I) {
         let elapsed = (now - self.last_updated).as_secs_f64();
         let refilled = self.speed_limit * elapsed;
@@ -97,6 +108,8 @@ pub struct Builder<C: Clock> {
 
 impl<C: Clock> Builder<C> {
     /// Creates a new limiter builder.
+    ///
+    /// Use [infinity](`std::f64::INFINITY`) to make the speed unlimited.
     pub fn new(speed_limit: f64) -> Self {
         let clock = C::default();
         let mut result = Self {
@@ -114,6 +127,8 @@ impl<C: Clock> Builder<C> {
 
     /// Sets the speed limit of the limiter.
     ///
+    /// Use [infinity](`std::f64::INFINITY`) to make the speed unlimited.
+    ///
     /// # Panics
     ///
     /// The speed limit must be positive. Panics if the speed limit is negative,
@@ -126,7 +141,8 @@ impl<C: Clock> Builder<C> {
 
     /// Sets the refill period of the limiter.
     ///
-    /// The default value is 0.1 s, which should be good for most use cases.
+    /// The default value is 0.1 s, which should be good for most use cases. The
+    /// refill period is ignored if the speed is [infinity](`std::f64::INFINITY`).
     ///
     /// # Panics
     ///
@@ -220,11 +236,15 @@ declare_limiter! {}
 
 impl<C: Clock> Limiter<C> {
     /// Creates a new speed limiter.
+    ///
+    /// Use [infinity](`std::f64::INFINITY`) to make the speed unlimited.
     pub fn new(speed_limit: f64) -> Self {
         Builder::new(speed_limit).build()
     }
 
     /// Makes a [`Builder`] for further configurating this limiter.
+    ///
+    /// Use [infinity](`std::f64::INFINITY`) to make the speed unlimited.
     pub fn builder(speed_limit: f64) -> Builder<C> {
         Builder::new(speed_limit)
     }
@@ -237,6 +257,8 @@ impl<C: Clock> Limiter<C> {
     /// Dynamically changes the speed limit. The new limit applies to all clones
     /// of this instance.
     ///
+    /// Use [infinity](`std::f64::INFINITY`) to make the speed unlimited.
+    ///
     /// This change will not affect any tasks scheduled _before_ this call.
     pub fn set_speed_limit(&self, speed_limit: f64) {
         debug_assert!(speed_limit > 0.0, "speed limit must be positive");
@@ -244,6 +266,9 @@ impl<C: Clock> Limiter<C> {
     }
 
     /// Returns the current speed limit.
+    ///
+    /// This method returns [infinity](`std::f64::INFINITY`) if the speed is
+    /// unlimited.
     pub fn speed_limit(&self) -> f64 {
         self.bucket.lock().unwrap().speed_limit
     }
@@ -273,8 +298,12 @@ impl<C: Clock> Limiter<C> {
         // Using a lock should be fine,
         // as we're not blocking for a long time.
         let mut bucket = self.bucket.lock().unwrap();
-        bucket.refill(self.clock.now());
-        bucket.consume(size)
+        if bucket.speed_limit.is_finite() {
+            bucket.refill(self.clock.now());
+            bucket.consume(size)
+        } else {
+            Duration::from_secs(0)
+        }
     }
 
     /// Consumes several bytes from the speed limiter.
@@ -296,7 +325,7 @@ impl<C: Clock> Limiter<C> {
     /// If you want to reuse the limiter after calling this function, `clone()`
     /// the limiter first.
     pub fn limit<R, T>(self, resource: R) -> Resource<R, T, C> {
-        Resource::new(Some(self), resource)
+        Resource::new(self, resource)
     }
 
     /// Returns the number of active clones of this limiter.
@@ -367,7 +396,7 @@ impl<C: Clock, R: Unpin> futures_core::future::FusedFuture for Consume<C, R> {
 }
 
 pin_project! {
-    /// An optionally speed-limited wrapper of a byte stream.
+    /// A speed-limited wrapper of a byte stream.
     ///
     /// The `Resource` can be used to limit speed of
     ///
@@ -380,7 +409,7 @@ pin_project! {
     /// many read/write tasks are started simultaneously. Therefore, restricting
     /// the concurrency is also important to avoid breaching the constraint.
     pub struct Resource<R, T, C: Clock> {
-        limiter: Option<Limiter<C>>,
+        limiter: Limiter<C>,
         #[pin]
         resource: R,
         waiter: Option<Consume<C, T>>,
@@ -390,10 +419,9 @@ pin_project! {
 impl<R, T, C: Clock> Resource<R, T, C> {
     /// Creates a new speed-limited resource.
     ///
-    /// If `limiter` is `None`, the created resources is unlimited. The optional
-    /// input makes it easy to toggle between limited and unlimited
-    /// configuration.
-    pub fn new(limiter: Option<Limiter<C>>, resource: R) -> Self {
+    /// To make the resouce have unlimited speed, set the speed of [`Limiter`]
+    /// to [infinity](`std::f64::INFINITY`).
+    pub fn new(limiter: Limiter<C>, resource: R) -> Self {
         Self {
             limiter,
             resource,
@@ -460,18 +488,18 @@ impl<R, C: Clock, T: Unpin> Resource<R, T, C> {
         }
 
         let len;
-        match (poll(this.resource, cx), this.limiter) {
-            (Poll::Ready(obj), Some(limiter))
+        match poll(this.resource, cx) {
+            Poll::Ready(obj)
                 if {
                     len = length(&obj);
                     len > 0
                 } =>
             {
-                *this.waiter = Some(limiter.consume(len).map(|_| obj));
+                *this.waiter = Some(this.limiter.consume(len).map(|_| obj));
                 cx.waker().wake_by_ref();
                 Poll::Pending
             }
-            (res, _) => res,
+            res => res,
         }
     }
 }

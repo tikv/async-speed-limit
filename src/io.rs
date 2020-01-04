@@ -135,13 +135,14 @@ mod tests {
         let mut pool = LocalPool::new();
         let sp = pool.spawner();
 
+        let limiter = Limiter::<ManualClock>::new(std::f64::INFINITY);
+
         sp.spawn({
             async move {
                 let src = vec![50u8; 1024];
                 let mut dst = Vec::new();
 
-                let read =
-                    BufReader::with_capacity(256, Resource::<_, _, ManualClock>::new(None, &*src));
+                let read = BufReader::with_capacity(256, limiter.limit(&*src));
                 let count = copy_buf(read, &mut dst).await.unwrap();
 
                 assert_eq!(count, src.len() as u64);
@@ -208,11 +209,11 @@ mod tokio_tests {
     use crate::Limiter;
     use futures_util::compat::{AsyncRead01CompatExt, Compat};
     use std::{
-        io::{repeat, sink, Cursor, Read},
+        io::{repeat, sink, Read},
         time::{Duration, Instant},
     };
     use tokio::{
-        codec::{BytesCodec, Decoder},
+        codec::{BytesCodec, FramedRead},
         io::{copy, shutdown},
         prelude::{
             future::{lazy, Future},
@@ -249,6 +250,33 @@ mod tokio_tests {
     }
 
     #[test]
+    fn unlimited_read() {
+        let limiter = <Limiter>::new(std::f64::INFINITY);
+
+        let mut rt = Runtime::new().unwrap();
+
+        let start_time = Instant::now();
+        let total = rt
+            .block_on(lazy(|| {
+                let reader = repeat(50u8).take(65536);
+                let reader = Compat::new(limiter.limit(reader.compat()));
+                copy(reader, sink())
+                    .and_then(|(total, _, write)| shutdown(write).map(move |_| total))
+            }))
+            .unwrap();
+        let elapsed = start_time.elapsed();
+
+        assert!(
+            elapsed <= Duration::from_millis(100),
+            "elapsed = {:?}",
+            elapsed
+        );
+        assert_eq!(total, 65536);
+
+        rt.shutdown_now().wait().unwrap();
+    }
+
+    #[test]
     fn limited_read_byte_stream() {
         let limiter = <Limiter>::new(30000.0);
 
@@ -257,10 +285,9 @@ mod tokio_tests {
         let start_time = Instant::now();
         let total = rt
             .block_on(lazy(|| {
-                let reader = Cursor::new(vec![50u8; 60000]);
+                let reader = repeat(50u8).take(60000);
                 let reader = Compat::new(limiter.limit(reader.compat()));
-                BytesCodec::new()
-                    .framed(reader)
+                FramedRead::new(reader, BytesCodec::new())
                     .fold(0, |i, j| Ok::<_, std::io::Error>(i + j.len()))
             }))
             .unwrap();
