@@ -2,9 +2,9 @@
 
 //! Speed limiter
 
-use crate::clock::Clock;
 #[cfg(feature = "standard-clock")]
 use crate::clock::StandardClock;
+use crate::clock::{BlockingClock, Clock};
 use pin_project_lite::pin_project;
 use std::{
     future::Future,
@@ -261,25 +261,29 @@ impl<C: Clock> Limiter<C> {
         self.total_bytes_consumed.store(0, Ordering::Relaxed);
     }
 
+    /// Consumes several bytes from the speed limiter, returns the duration
+    /// needed to sleep to maintain the speed limit.
+    fn consume_duration(&self, byte_size: usize) -> Duration {
+        self.total_bytes_consumed
+            .fetch_add(byte_size, Ordering::Relaxed);
+
+        #[allow(clippy::cast_precision_loss)]
+        let size = byte_size as f64;
+
+        // Using a lock should be fine,
+        // as we're not blocking for a long time.
+        let mut bucket = self.bucket.lock().unwrap();
+        bucket.refill(self.clock.now());
+        bucket.consume(size)
+    }
+
     /// Consumes several bytes from the speed limiter.
     ///
     /// The consumption happens at the beginning, *before* the speed limit is
     /// applied. The returned future is fulfilled after the speed limit is
     /// satified.
     pub fn consume(&self, byte_size: usize) -> Consume<C, ()> {
-        #[allow(clippy::cast_precision_loss)]
-        let size = byte_size as f64;
-        let sleep_dur = {
-            // Using a lock should be fine,
-            // as we're not blocking for a long time.
-            let mut bucket = self.bucket.lock().unwrap();
-            bucket.refill(self.clock.now());
-            bucket.consume(size)
-        };
-
-        self.total_bytes_consumed
-            .fetch_add(byte_size, Ordering::Relaxed);
-
+        let sleep_dur = self.consume_duration(byte_size);
         Consume {
             future: self.clock.sleep(sleep_dur),
             result: Some(()),
@@ -301,6 +305,25 @@ impl<C: Clock> Limiter<C> {
     #[cfg(test)]
     fn shared_count(&self) -> usize {
         Arc::strong_count(&self.bucket)
+    }
+}
+
+impl<C: BlockingClock> Limiter<C> {
+    /// Consumes several bytes, and sleeps the current thread to maintain the
+    /// speed limit.
+    ///
+    /// The consumption happens at the beginning, *before* the speed limit is
+    /// applied. This method blocks the current thread (e.g. using
+    /// [`std::thread::sleep()`] given a [`StandardClock`]), and *must not* be
+    /// used in `async` context.
+    ///
+    /// Prefer using this method instead of
+    /// [`futures_executor::block_on`]`(limiter.`[`consume`](Limiter::consume())`(size))`.
+    ///
+    /// [`futures_executor::block_on`]: https://docs.rs/futures-executor/0.3/futures_executor/fn.block_on.html
+    pub fn blocking_consume(&self, byte_size: usize) {
+        let sleep_dur = self.consume_duration(byte_size);
+        self.clock.blocking_sleep(sleep_dur);
     }
 }
 
@@ -977,10 +1000,57 @@ mod tests_with_standard_clock {
                 let speed = limiter.total_bytes_consumed() as f64 / elapsed.as_secs_f64();
                 let diff_ratio = speed / speed_limit as f64;
                 eprintln!(
-                    "{} threads, expected speed {} B/s, actual speed {:.0} B/s, elapsed {:?}",
+                    "rate: {} threads, expected speed {} B/s, actual speed {:.0} B/s, elapsed {:?}",
                     i, speed_limit, speed, elapsed
                 );
                 assert!(0.80 <= diff_ratio && diff_ratio <= 1.25);
+                assert!(elapsed <= Duration::from_secs(4));
+            }
+        }
+    }
+
+    #[test]
+    fn block() {
+        eprintln!("tests_with_standard_clock::block() will run for 20 seconds, please be patient");
+
+        for &i in &[1, 2, 4, 8, 16] {
+            let target = i * 10_240;
+
+            let limiter = <Limiter>::new(target as f64);
+            for &speed_limit in &[target, target * 2] {
+                limiter.reset_statistics();
+                limiter.set_speed_limit(speed_limit as f64);
+                let start = Instant::now();
+
+                let handles = (0..i)
+                    .map(|_| {
+                        let limiter = limiter.clone();
+                        std::thread::spawn(move || {
+                            // tests for 2 seconds.
+                            let until = Instant::now() + Duration::from_secs(2);
+                            while Instant::now() < until {
+                                let size = thread_rng().gen_range(1, 1 + target / 10);
+                                limiter.blocking_consume(size);
+                            }
+                        })
+                    })
+                    .collect::<Vec<_>>();
+
+                for jh in handles {
+                    jh.join().unwrap();
+                }
+
+                assert_eq!(limiter.shared_count(), 1);
+
+                let elapsed = start.elapsed();
+                let speed = limiter.total_bytes_consumed() as f64 / elapsed.as_secs_f64();
+                let diff_ratio = speed / speed_limit as f64;
+                eprintln!(
+                    "block: {} threads, expected speed {} B/s, actual speed {:.0} B/s, elapsed {:?}",
+                    i, speed_limit, speed, elapsed
+                );
+                assert!(0.80 <= diff_ratio && diff_ratio <= 1.25);
+                assert!(elapsed <= Duration::from_secs(4));
             }
         }
     }

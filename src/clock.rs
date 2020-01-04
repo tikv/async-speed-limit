@@ -65,9 +65,16 @@ pub trait Clock: Clone + Default {
     fn sleep(&self, dur: Duration) -> Self::Delay;
 }
 
+/// A `BlockingClock` is a [`Clock`] which supports synchronous sleeping.
+pub trait BlockingClock: Clock {
+    /// Sleeps and blocks the current thread for the given duration.
+    fn blocking_sleep(&self, dur: Duration);
+}
+
 /// The physical clock using [`std::time::Instant`].
 ///
-/// The sleeping future is based on [`futures-timer`].
+/// The sleeping future is based on [`futures-timer`]. Blocking sleep uses
+/// [`std::thread::sleep()`].
 ///
 /// [`futures-timer`]: https://docs.rs/futures-timer/
 #[cfg(feature = "standard-clock")]
@@ -85,6 +92,13 @@ impl Clock for StandardClock {
 
     fn sleep(&self, dur: Duration) -> Self::Delay {
         Delay::new(dur)
+    }
+}
+
+#[cfg(feature = "standard-clock")]
+impl BlockingClock for StandardClock {
+    fn blocking_sleep(&self, dur: Duration) {
+        std::thread::sleep(dur);
     }
 }
 
