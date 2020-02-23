@@ -324,7 +324,7 @@ impl<C: Clock> Limiter<C> {
     ///
     /// If you want to reuse the limiter after calling this function, `clone()`
     /// the limiter first.
-    pub fn limit<R, T>(self, resource: R) -> Resource<R, T, C> {
+    pub fn limit<R>(self, resource: R) -> Resource<R, C> {
         Resource::new(self, resource)
     }
 
@@ -408,15 +408,15 @@ pin_project! {
     /// give an accurate delay. The instantaneous speed can exceed the limit if
     /// many read/write tasks are started simultaneously. Therefore, restricting
     /// the concurrency is also important to avoid breaching the constraint.
-    pub struct Resource<R, T, C: Clock> {
+    pub struct Resource<R, C: Clock> {
         limiter: Limiter<C>,
         #[pin]
         resource: R,
-        waiter: Option<Consume<C, T>>,
+        waiter: Option<Consume<C, ()>>,
     }
 }
 
-impl<R, T, C: Clock> Resource<R, T, C> {
+impl<R, C: Clock> Resource<R, C> {
     /// Creates a new speed-limited resource.
     ///
     /// To make the resouce have unlimited speed, set the speed of [`Limiter`]
@@ -463,7 +463,7 @@ impl<R, T, C: Clock> Resource<R, T, C> {
     }
 }
 
-impl<R, C: Clock, T: Unpin> Resource<R, T, C> {
+impl<R, C: Clock> Resource<R, C> {
     /// Wraps a poll function with a delay after it.
     ///
     /// This method calls the given `poll` function until it is fulfilled. After
@@ -471,7 +471,7 @@ impl<R, C: Clock, T: Unpin> Resource<R, T, C> {
     /// different `poll_***` calls should not be interleaving), while returning
     /// `Pending` until the limiter has completely consumed the result.
     #[allow(dead_code)]
-    pub(crate) fn poll_limited(
+    pub(crate) fn poll_limited<T>(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         length: impl FnOnce(&T) -> usize,
@@ -481,26 +481,20 @@ impl<R, C: Clock, T: Unpin> Resource<R, T, C> {
 
         if let Some(waiter) = this.waiter {
             let res = Pin::new(waiter).poll(cx);
-            if res.is_ready() {
-                *this.waiter = None;
+            if res.is_pending() {
+                return Poll::Pending;
             }
-            return res;
+            *this.waiter = None;
         }
 
-        let len;
-        match poll(this.resource, cx) {
-            Poll::Ready(obj)
-                if {
-                    len = length(&obj);
-                    len > 0
-                } =>
-            {
-                *this.waiter = Some(this.limiter.consume(len).map(|_| obj));
-                cx.waker().wake_by_ref();
-                Poll::Pending
+        let res = poll(this.resource, cx);
+        if let Poll::Ready(obj) = &res {
+            let len = length(obj);
+            if len > 0 {
+                *this.waiter = Some(this.limiter.consume(len));
             }
-            res => res,
         }
+        res
     }
 }
 

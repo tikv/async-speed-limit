@@ -16,7 +16,7 @@ fn length_of_result_usize(a: &io::Result<usize>) -> usize {
     }
 }
 
-impl<R: AsyncRead, C: Clock> AsyncRead for Resource<R, io::Result<usize>, C> {
+impl<R: AsyncRead, C: Clock> AsyncRead for Resource<R, C> {
     #[cfg(feature = "read-initializer")]
     #[allow(unsafe_code)]
     unsafe fn initializer(&self) -> io::Initializer {
@@ -42,7 +42,7 @@ impl<R: AsyncRead, C: Clock> AsyncRead for Resource<R, io::Result<usize>, C> {
     }
 }
 
-impl<R: AsyncWrite, C: Clock> AsyncWrite for Resource<R, io::Result<usize>, C> {
+impl<R: AsyncWrite, C: Clock> AsyncWrite for Resource<R, C> {
     fn poll_write(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -82,6 +82,7 @@ mod tests {
         io::{copy_buf, BufReader},
         task::SpawnExt,
     };
+    use rand::{thread_rng, RngCore};
 
     #[test]
     fn limited_read() {
@@ -95,7 +96,8 @@ mod tests {
             let limiter = limiter.clone();
             let clock = clock.clone();
             async move {
-                let src = vec![50u8; 1024];
+                let mut src = vec![0u8; 1024];
+                thread_rng().fill_bytes(&mut src);
                 let mut dst = Vec::new();
 
                 let read = BufReader::with_capacity(256, limiter.limit(&*src));
@@ -139,7 +141,8 @@ mod tests {
 
         sp.spawn({
             async move {
-                let src = vec![50u8; 1024];
+                let mut src = vec![0u8; 1024];
+                thread_rng().fill_bytes(&mut src);
                 let mut dst = Vec::new();
 
                 let read = BufReader::with_capacity(256, limiter.limit(&*src));
@@ -167,13 +170,14 @@ mod tests {
             let limiter = limiter.clone();
             let clock = clock.clone();
             async move {
-                let src = vec![50u8; 1024];
+                let mut src = vec![0u8; 1024];
+                thread_rng().fill_bytes(&mut src);
 
                 let read = BufReader::with_capacity(256, &*src);
                 let mut write = limiter.limit(Vec::new());
                 let count = copy_buf(read, &mut write).await.unwrap();
 
-                assert_eq!(clock.now(), Nanoseconds(2_000_000_000));
+                assert_eq!(clock.now(), Nanoseconds(1_500_000_000));
                 assert_eq!(count, src.len() as u64);
                 assert!(src == write.into_inner());
             }
@@ -287,8 +291,10 @@ mod tokio_tests {
             .block_on(lazy(|| {
                 let reader = repeat(50u8).take(60000);
                 let reader = Compat::new(limiter.limit(reader.compat()));
-                FramedRead::new(reader, BytesCodec::new())
-                    .fold(0, |i, j| Ok::<_, std::io::Error>(i + j.len()))
+                FramedRead::new(reader, BytesCodec::new()).fold(0, |i, j| {
+                    assert!(j.iter().all(|b| *b == 50u8), "{} / {:?}", i, j);
+                    Ok::<_, std::io::Error>(i + j.len())
+                })
             }))
             .unwrap();
         let elapsed = start_time.elapsed();
