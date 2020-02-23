@@ -581,21 +581,19 @@ mod tests_with_manual_clock {
     fn under_limit_single_thread() {
         let mut fx = Fixture::new();
 
-        fx.spawn(|sfx| {
-            async move {
-                sfx.consume(50).await;
-                assert_eq!(sfx.now(), 0);
-                sfx.consume(51).await;
-                assert_eq!(sfx.now(), 0);
-                sfx.consume(52).await;
-                assert_eq!(sfx.now(), 0);
-                sfx.consume(53).await;
-                assert_eq!(sfx.now(), 0);
-                sfx.consume(54).await;
-                assert_eq!(sfx.now(), 0);
-                sfx.consume(55).await;
-                assert_eq!(sfx.now(), 0);
-            }
+        fx.spawn(|sfx| async move {
+            sfx.consume(50).await;
+            assert_eq!(sfx.now(), 0);
+            sfx.consume(51).await;
+            assert_eq!(sfx.now(), 0);
+            sfx.consume(52).await;
+            assert_eq!(sfx.now(), 0);
+            sfx.consume(53).await;
+            assert_eq!(sfx.now(), 0);
+            sfx.consume(54).await;
+            assert_eq!(sfx.now(), 0);
+            sfx.consume(55).await;
+            assert_eq!(sfx.now(), 0);
         });
 
         fx.set_time(0);
@@ -645,33 +643,29 @@ mod tests_with_manual_clock {
         // before the second task. Nevertheless, the second task can still send
         // stuff using the timing difference.
 
-        fx.spawn(|sfx| {
-            async move {
-                sfx.consume(200).await;
-                assert_eq!(sfx.now(), 0);
-                sfx.consume(202).await;
-                assert_eq!(sfx.now(), 0);
-                sfx.consume(204).await;
-                assert_eq!(sfx.now(), 1_183_593_750);
-                sfx.consume(206).await;
-                assert_eq!(sfx.now(), 1_183_593_750);
-                sfx.consume(208).await;
-                assert_eq!(sfx.now(), 2_384_765_625);
-            }
+        fx.spawn(|sfx| async move {
+            sfx.consume(200).await;
+            assert_eq!(sfx.now(), 0);
+            sfx.consume(202).await;
+            assert_eq!(sfx.now(), 0);
+            sfx.consume(204).await;
+            assert_eq!(sfx.now(), 1_183_593_750);
+            sfx.consume(206).await;
+            assert_eq!(sfx.now(), 1_183_593_750);
+            sfx.consume(208).await;
+            assert_eq!(sfx.now(), 2_384_765_625);
         });
-        fx.spawn(|sfx| {
-            async move {
-                sfx.consume(201).await;
-                assert_eq!(sfx.now(), 1_576_171_875);
-                sfx.consume(203).await;
-                assert_eq!(sfx.now(), 2_781_250_000);
-                sfx.consume(205).await;
-                assert_eq!(sfx.now(), 2_781_250_000);
-                sfx.consume(207).await;
-                assert_eq!(sfx.now(), 2_781_250_000);
-                sfx.consume(209).await;
-                assert_eq!(sfx.now(), 3_994_140_625);
-            }
+        fx.spawn(|sfx| async move {
+            sfx.consume(201).await;
+            assert_eq!(sfx.now(), 1_576_171_875);
+            sfx.consume(203).await;
+            assert_eq!(sfx.now(), 2_781_250_000);
+            sfx.consume(205).await;
+            assert_eq!(sfx.now(), 2_781_250_000);
+            sfx.consume(207).await;
+            assert_eq!(sfx.now(), 2_781_250_000);
+            sfx.consume(209).await;
+            assert_eq!(sfx.now(), 3_994_140_625);
         });
 
         fx.set_time(0);
@@ -702,33 +696,29 @@ mod tests_with_manual_clock {
     fn over_limit_multi_thread_2() {
         let mut fx = Fixture::new();
 
-        fx.spawn(|sfx| {
-            async move {
-                sfx.consume(300).await;
-                assert_eq!(sfx.now(), 0);
-                sfx.consume(301).await;
-                assert_eq!(sfx.now(), 1_173_828_125);
-                sfx.consume(302).await;
-                assert_eq!(sfx.now(), 1_173_828_125);
-                sfx.consume(303).await;
-                assert_eq!(sfx.now(), 2_550_781_250);
-                sfx.consume(304).await;
-                assert_eq!(sfx.now(), 2_550_781_250);
-            }
+        fx.spawn(|sfx| async move {
+            sfx.consume(300).await;
+            assert_eq!(sfx.now(), 0);
+            sfx.consume(301).await;
+            assert_eq!(sfx.now(), 1_173_828_125);
+            sfx.consume(302).await;
+            assert_eq!(sfx.now(), 1_173_828_125);
+            sfx.consume(303).await;
+            assert_eq!(sfx.now(), 2_550_781_250);
+            sfx.consume(304).await;
+            assert_eq!(sfx.now(), 2_550_781_250);
         });
-        fx.spawn(|sfx| {
-            async move {
-                sfx.consume(100).await;
-                assert_eq!(sfx.now(), 1_369_140_625);
-                sfx.consume(101).await;
-                assert_eq!(sfx.now(), 2_748_046_875);
-                sfx.consume(102).await;
-                assert_eq!(sfx.now(), 2_748_046_875);
-                sfx.consume(103).await;
-                assert_eq!(sfx.now(), 2_748_046_875);
-                sfx.consume(104).await;
-                assert_eq!(sfx.now(), 3_945_312_500);
-            }
+        fx.spawn(|sfx| async move {
+            sfx.consume(100).await;
+            assert_eq!(sfx.now(), 1_369_140_625);
+            sfx.consume(101).await;
+            assert_eq!(sfx.now(), 2_748_046_875);
+            sfx.consume(102).await;
+            assert_eq!(sfx.now(), 2_748_046_875);
+            sfx.consume(103).await;
+            assert_eq!(sfx.now(), 2_748_046_875);
+            sfx.consume(104).await;
+            assert_eq!(sfx.now(), 3_945_312_500);
         });
 
         fx.set_time(0);
@@ -753,41 +743,37 @@ mod tests_with_manual_clock {
         // so the consume() are evenly distributed, and can take advantage of
         // single bursting.
 
-        fx.spawn(|sfx| {
-            async move {
-                sfx.consume(300).await;
-                assert_eq!(sfx.now(), 0);
-                sfx.sleep(1).await;
-                sfx.consume(301).await;
-                assert_eq!(sfx.now(), 1_369_140_625);
-                sfx.sleep(1).await;
-                sfx.consume(302).await;
-                assert_eq!(sfx.now(), 1_369_140_626);
-                sfx.sleep(1).await;
-                sfx.consume(303).await;
-                assert_eq!(sfx.now(), 2_748_046_875);
-                sfx.sleep(1).await;
-                sfx.consume(304).await;
-                assert_eq!(sfx.now(), 2_748_046_876);
-            }
+        fx.spawn(|sfx| async move {
+            sfx.consume(300).await;
+            assert_eq!(sfx.now(), 0);
+            sfx.sleep(1).await;
+            sfx.consume(301).await;
+            assert_eq!(sfx.now(), 1_369_140_625);
+            sfx.sleep(1).await;
+            sfx.consume(302).await;
+            assert_eq!(sfx.now(), 1_369_140_626);
+            sfx.sleep(1).await;
+            sfx.consume(303).await;
+            assert_eq!(sfx.now(), 2_748_046_875);
+            sfx.sleep(1).await;
+            sfx.consume(304).await;
+            assert_eq!(sfx.now(), 2_748_046_876);
         });
-        fx.spawn(|sfx| {
-            async move {
-                sfx.consume(100).await;
-                assert_eq!(sfx.now(), 0);
-                sfx.sleep(1).await;
-                sfx.consume(101).await;
-                assert_eq!(sfx.now(), 1_566_406_250);
-                sfx.sleep(1).await;
-                sfx.consume(102).await;
-                assert_eq!(sfx.now(), 2_947_265_625);
-                sfx.sleep(1).await;
-                sfx.consume(103).await;
-                assert_eq!(sfx.now(), 2_947_265_626);
-                sfx.sleep(1).await;
-                sfx.consume(104).await;
-                assert_eq!(sfx.now(), 2_947_265_627);
-            }
+        fx.spawn(|sfx| async move {
+            sfx.consume(100).await;
+            assert_eq!(sfx.now(), 0);
+            sfx.sleep(1).await;
+            sfx.consume(101).await;
+            assert_eq!(sfx.now(), 1_566_406_250);
+            sfx.sleep(1).await;
+            sfx.consume(102).await;
+            assert_eq!(sfx.now(), 2_947_265_625);
+            sfx.sleep(1).await;
+            sfx.consume(103).await;
+            assert_eq!(sfx.now(), 2_947_265_626);
+            sfx.sleep(1).await;
+            sfx.consume(104).await;
+            assert_eq!(sfx.now(), 2_947_265_627);
         });
 
         fx.set_time(0);
@@ -820,21 +806,19 @@ mod tests_with_manual_clock {
     fn hiatus() {
         let mut fx = Fixture::new();
 
-        fx.spawn(|sfx| {
-            async move {
-                sfx.consume(400).await;
-                assert_eq!(sfx.now(), 0);
-                sfx.consume(401).await;
-                assert_eq!(sfx.now(), 1_564_453_125);
+        fx.spawn(|sfx| async move {
+            sfx.consume(400).await;
+            assert_eq!(sfx.now(), 0);
+            sfx.consume(401).await;
+            assert_eq!(sfx.now(), 1_564_453_125);
 
-                sfx.sleep(10_000_000_000).await;
-                assert_eq!(sfx.now(), 11_564_453_125);
+            sfx.sleep(10_000_000_000).await;
+            assert_eq!(sfx.now(), 11_564_453_125);
 
-                sfx.consume(402).await;
-                assert_eq!(sfx.now(), 11_564_453_125);
-                sfx.consume(403).await;
-                assert_eq!(sfx.now(), 13_136_718_750);
-            }
+            sfx.consume(402).await;
+            assert_eq!(sfx.now(), 11_564_453_125);
+            sfx.consume(403).await;
+            assert_eq!(sfx.now(), 13_136_718_750);
         });
 
         fx.set_time(0);
@@ -852,15 +836,13 @@ mod tests_with_manual_clock {
     fn burst() {
         let mut fx = Fixture::new();
 
-        fx.spawn(|sfx| {
-            async move {
-                sfx.consume(5000).await;
-                assert_eq!(sfx.now(), 9_765_625_000);
-                sfx.consume(5001).await;
-                assert_eq!(sfx.now(), 19_533_203_125);
-                sfx.consume(5002).await;
-                assert_eq!(sfx.now(), 29_302_734_375);
-            }
+        fx.spawn(|sfx| async move {
+            sfx.consume(5000).await;
+            assert_eq!(sfx.now(), 9_765_625_000);
+            sfx.consume(5001).await;
+            assert_eq!(sfx.now(), 19_533_203_125);
+            sfx.consume(5002).await;
+            assert_eq!(sfx.now(), 29_302_734_375);
         });
 
         fx.set_time(0);
@@ -878,11 +860,9 @@ mod tests_with_manual_clock {
         let mut fx = Fixture::new();
 
         // we try to send 5120 bytes at granularity of 256 bytes each.
-        fx.spawn(|sfx| {
-            async move {
-                for _ in 0..20 {
-                    sfx.consume(256).await;
-                }
+        fx.spawn(|sfx| async move {
+            for _ in 0..20 {
+                sfx.consume(256).await;
             }
         });
 
@@ -940,21 +920,17 @@ mod tests_with_manual_clock {
     fn thousand_cuts() {
         let mut fx = Fixture::new();
 
-        fx.spawn(|sfx| {
-            async move {
-                for _ in 0..64 {
-                    sfx.consume(16).await;
-                }
+        fx.spawn(|sfx| async move {
+            for _ in 0..64 {
+                sfx.consume(16).await;
             }
         });
 
-        fx.spawn(|sfx| {
-            async move {
-                sfx.consume(555).await;
-                assert_eq!(sfx.now(), 2_083_984_375);
-                sfx.consume(556).await;
-                assert_eq!(sfx.now(), 3_201_171_875);
-            }
+        fx.spawn(|sfx| async move {
+            sfx.consume(555).await;
+            assert_eq!(sfx.now(), 2_083_984_375);
+            sfx.consume(556).await;
+            assert_eq!(sfx.now(), 3_201_171_875);
         });
 
         fx.set_time(0);
@@ -979,19 +955,17 @@ mod tests_with_manual_clock {
     fn set_infinite_speed_limit() {
         let mut fx = Fixture::new();
 
-        fx.spawn(|sfx| {
-            async move {
-                for _ in 0..1000 {
-                    sfx.consume(512).await;
-                }
-                sfx.sleep(1).await;
-                for _ in 0..1000 {
-                    sfx.consume(512).await;
-                }
-                sfx.sleep(1).await;
-                sfx.consume(512).await;
+        fx.spawn(|sfx| async move {
+            for _ in 0..1000 {
                 sfx.consume(512).await;
             }
+            sfx.sleep(1).await;
+            for _ in 0..1000 {
+                sfx.consume(512).await;
+            }
+            sfx.sleep(1).await;
+            sfx.consume(512).await;
+            sfx.consume(512).await;
         });
 
         fx.set_time(0);
