@@ -1,6 +1,6 @@
 [package]
 name = "async-speed-limit"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["The TiKV Project Developers"]
 license = "MIT OR Apache-2.0"
 edition = "2018"
@@ -12,7 +12,7 @@ readme = "README.md"
 all-features = true
 
 [dependencies]
-futures-timer = { version = "2.0.2", optional = true }
+futures-timer = { version = "3.0.2", optional = true }
 futures-io = { version = "0.3.1", optional = true }
 futures-core = { version = "0.3.1", optional = true }
 pin-project-lite = "0.1.1"
