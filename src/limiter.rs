@@ -1116,12 +1116,4 @@ mod tests_with_standard_clock {
             }
         }
     }
-
-    // Intel(R) Xeon(R) CPU E5-2630 v4 @ 2.20GHz
-    // test limiter::tests_with_standard_clock::bench_infinity_speed ... bench:          34 ns/iter (+/- 1)
-    #[bench]
-    fn bench_infinity_speed(b: &mut test::Bencher) {
-        let limiter = <Limiter>::new(f64::INFINITY);
-        b.iter(|| futures_executor::block_on(limiter.consume(1)));
-    }
 }
