@@ -13,7 +13,7 @@ use std::{
     pin::Pin,
     sync::Arc,
     sync::{
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         Mutex,
     },
     task::{Context, Poll},
@@ -166,10 +166,12 @@ impl<C: Clock> Builder<C> {
     pub fn build(&mut self) -> Limiter<C> {
         self.bucket.value = self.bucket.capacity();
         self.bucket.last_updated = self.clock.now();
+        let is_unlimited = self.bucket.speed_limit.is_infinite();
         Limiter {
             bucket: Arc::new(Mutex::new(self.bucket)),
             clock: mem::take(&mut self.clock),
             total_bytes_consumed: Arc::new(AtomicUsize::new(0)),
+            is_unlimited: Arc::new(AtomicBool::new(is_unlimited)),
         }
     }
 }
@@ -224,6 +226,8 @@ macro_rules! declare_limiter {
             /// Statistics of the number of bytes consumed for record. When this
             /// number reaches `usize::MAX` it will wrap around.
             total_bytes_consumed: Arc<AtomicUsize>,
+            /// A flag indicates unlimited speed.
+            is_unlimited: Arc<AtomicBool>,
         }
     }
 }
@@ -263,6 +267,8 @@ impl<C: Clock> Limiter<C> {
     pub fn set_speed_limit(&self, speed_limit: f64) {
         debug_assert!(speed_limit > 0.0, "speed limit must be positive");
         self.bucket.lock().unwrap().set_speed_limit(speed_limit);
+        self.is_unlimited
+            .store(speed_limit.is_infinite(), Ordering::Relaxed);
     }
 
     /// Returns the current speed limit.
@@ -292,18 +298,18 @@ impl<C: Clock> Limiter<C> {
         self.total_bytes_consumed
             .fetch_add(byte_size, Ordering::Relaxed);
 
+        if self.is_unlimited.load(Ordering::Relaxed) {
+            return Duration::from_secs(0);
+        }
+
         #[allow(clippy::cast_precision_loss)]
         let size = byte_size as f64;
 
         // Using a lock should be fine,
         // as we're not blocking for a long time.
         let mut bucket = self.bucket.lock().unwrap();
-        if bucket.speed_limit.is_finite() {
-            bucket.refill(self.clock.now());
-            bucket.consume(size)
-        } else {
-            Duration::from_secs(0)
-        }
+        bucket.refill(self.clock.now());
+        bucket.consume(size)
     }
 
     /// Consumes several bytes from the speed limiter.
@@ -313,8 +319,14 @@ impl<C: Clock> Limiter<C> {
     /// satified.
     pub fn consume(&self, byte_size: usize) -> Consume<C, ()> {
         let sleep_dur = self.consume_duration(byte_size);
+        // TODO use Duration::is_zero after `duration_zero` is stable.
+        let future = if sleep_dur == Duration::from_secs(0) {
+            None
+        } else {
+            Some(self.clock.sleep(sleep_dur))
+        };
         Consume {
-            future: self.clock.sleep(sleep_dur),
+            future,
             result: Some(()),
         }
     }
@@ -359,7 +371,7 @@ impl<C: BlockingClock> Limiter<C> {
 /// The future returned by [`Limiter::consume()`].
 #[derive(Debug)]
 pub struct Consume<C: Clock, R> {
-    future: C::Delay,
+    future: Option<C::Delay>,
     result: Option<R>,
 }
 
@@ -379,7 +391,11 @@ impl<C: Clock, R: Unpin> Future for Consume<C, R> {
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.get_mut();
-        if Pin::new(&mut this.future).poll(cx).is_ready() {
+        let future = match this.future {
+            Some(ref mut future) => future,
+            None => return Poll::Ready(this.result.take().unwrap()),
+        };
+        if Pin::new(future).poll(cx).is_ready() {
             if let Some(value) = this.result.take() {
                 return Poll::Ready(value);
             }
@@ -1099,5 +1115,13 @@ mod tests_with_standard_clock {
                 assert!(elapsed <= Duration::from_secs(4));
             }
         }
+    }
+
+    // Intel(R) Xeon(R) CPU E5-2630 v4 @ 2.20GHz
+    // test limiter::tests_with_standard_clock::bench_infinity_speed ... bench:          34 ns/iter (+/- 1)
+    #[bench]
+    fn bench_infinity_speed(b: &mut test::Bencher) {
+        let limiter = <Limiter>::new(f64::INFINITY);
+        b.iter(|| futures_executor::block_on(limiter.consume(1)));
     }
 }

@@ -25,6 +25,9 @@ Asynchronously speed-limiting multiple byte streams (`AsyncRead` and `AsyncWrite
 See README for details.
 "
 )]
+#![cfg_attr(test, feature(test))]
+#![cfg(test)]
+extern crate test;
 
 pub mod clock;
 #[cfg(feature = "futures-io")]
