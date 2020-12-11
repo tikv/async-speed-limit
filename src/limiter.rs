@@ -391,11 +391,11 @@ impl<C: Clock, R: Unpin> Future for Consume<C, R> {
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.get_mut();
-        let future = match this.future {
-            Some(ref mut future) => future,
-            None => return Poll::Ready(this.result.take().unwrap()),
+        let is_ready = match &mut this.future {
+            Some(future) => Pin::new(future).poll(cx).is_ready(),
+            None => true,
         };
-        if Pin::new(future).poll(cx).is_ready() {
+        if is_ready {
             if let Some(value) = this.result.take() {
                 return Poll::Ready(value);
             }
