@@ -22,7 +22,6 @@ default = ["futures-io", "fused-future", "standard-clock"]
 standard-clock = ["futures-timer"]
 fused-future = ["futures-core"]
 read-initializer = ["futures-io/unstable", "futures-io/read-initializer"]
-doc = []
 
 [dev-dependencies]
 futures-executor = "0.3.1"
