@@ -56,6 +56,13 @@ impl<I> Bucket<I> {
         }
     }
 
+    /// Reverts the previous consumption of the given number of bytes.
+    ///
+    /// This method should only be called when the speed is finite
+    fn unconsume(&mut self, size: f64) {
+        self.value += size;
+    }
+
     /// Changes the speed limit.
     ///
     /// The current value will be raised or lowered so that the number of
@@ -294,7 +301,7 @@ impl<C: Clock> Limiter<C> {
 
     /// Consumes several bytes from the speed limiter, returns the duration
     /// needed to sleep to maintain the speed limit.
-    fn consume_duration(&self, byte_size: usize) -> Duration {
+    pub fn consume_duration(&self, byte_size: usize) -> Duration {
         self.total_bytes_consumed
             .fetch_add(byte_size, Ordering::Relaxed);
 
@@ -310,6 +317,23 @@ impl<C: Clock> Limiter<C> {
         let mut bucket = self.bucket.lock().unwrap();
         bucket.refill(self.clock.now());
         bucket.consume(size)
+    }
+
+    /// Reverts the consumption of the given bytes size.
+    pub fn unconsume(&self, byte_size: usize) {
+        self.total_bytes_consumed
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |x| {
+                Some(x.saturating_sub(byte_size))
+            })
+            .unwrap();
+
+        if !self.is_unlimited.load(Ordering::Relaxed) {
+            #[allow(clippy::cast_precision_loss)]
+            let size = byte_size as f64;
+
+            let mut bucket = self.bucket.lock().unwrap();
+            bucket.unconsume(size);
+        }
     }
 
     /// Consumes several bytes from the speed limiter.
@@ -541,6 +565,10 @@ mod tests_with_manual_clock {
 
         fn consume(&self, bytes: usize) -> impl Future<Output = ()> + '_ {
             self.limiter.consume(bytes)
+        }
+
+        fn unconsume(&self, bytes: usize) {
+            self.limiter.unconsume(bytes)
         }
     }
 
@@ -814,6 +842,42 @@ mod tests_with_manual_clock {
         assert_eq!(fx.total_bytes_consumed(), 1916);
         fx.set_time(2_947_265_627);
         assert_eq!(fx.total_bytes_consumed(), 2020);
+    }
+
+    #[test]
+    fn unconsume() {
+        let mut fx = Fixture::new();
+
+        fx.spawn(|sfx| async move {
+            sfx.consume(200).await;
+            assert_eq!(sfx.now(), 0);
+            sfx.consume(201).await;
+            assert_eq!(sfx.now(), 0);
+            sfx.unconsume(200);
+            sfx.consume(202).await;
+            assert_eq!(sfx.now(), 0);
+            sfx.consume(200).await;
+            assert_eq!(sfx.now(), 1_177_734_375);
+
+            sfx.consume(203).await;
+            assert_eq!(sfx.now(), 1_177_734_375);
+            sfx.consume(204).await;
+            assert_eq!(sfx.now(), 1_177_734_375);
+            sfx.consume(205).await;
+            assert_eq!(sfx.now(), 2_373_046_875);
+            sfx.unconsume(2000);
+        });
+
+        fx.set_time(0);
+        assert_eq!(fx.total_bytes_consumed(), 603);
+        fx.set_time(1_177_734_374);
+        assert_eq!(fx.total_bytes_consumed(), 603);
+        fx.set_time(1_177_734_375);
+        assert_eq!(fx.total_bytes_consumed(), 1215);
+        fx.set_time(2_373_046_874);
+        assert_eq!(fx.total_bytes_consumed(), 1215);
+        fx.set_time(2_373_046_875);
+        assert_eq!(fx.total_bytes_consumed(), 0);
     }
 
     /// Ensures the speed limiter won't forget to enforce until a long pause
