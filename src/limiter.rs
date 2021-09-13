@@ -1112,7 +1112,7 @@ mod tests_with_standard_clock {
                         // tests for 2 seconds.
                         let until = Instant::now() + Duration::from_secs(2);
                         while Instant::now() < until {
-                            let size = thread_rng().gen_range(1, 1 + target / 10);
+                            let size = thread_rng().gen_range(1..1 + target / 10);
                             limiter.consume(size).await;
                         }
                     })
@@ -1155,7 +1155,7 @@ mod tests_with_standard_clock {
                             // tests for 2 seconds.
                             let until = Instant::now() + Duration::from_secs(2);
                             while Instant::now() < until {
-                                let size = thread_rng().gen_range(1, 1 + target / 10);
+                                let size = thread_rng().gen_range(1..1 + target / 10);
                                 limiter.blocking_consume(size);
                             }
                         })
