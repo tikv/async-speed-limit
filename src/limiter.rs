@@ -56,10 +56,10 @@ impl<I> Bucket<I> {
         }
     }
 
-    /// Revert the previous consumption of the given number of bytes.
+    /// Reverts the previous consumption of the given number of bytes.
     ///
     /// This method should only be called when the speed is finite
-    fn revert_consume(&mut self, size: f64) {
+    fn unconsume(&mut self, size: f64) {
         self.value += size;
     }
 
@@ -320,7 +320,7 @@ impl<C: Clock> Limiter<C> {
     }
 
     /// Reverts the consumption of the given bytes size.
-    pub fn revert_consume(&self, byte_size: usize) {
+    pub fn unconsume(&self, byte_size: usize) {
         self.total_bytes_consumed
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |x| {
                 Some(x.saturating_sub(byte_size))
@@ -332,7 +332,7 @@ impl<C: Clock> Limiter<C> {
             let size = byte_size as f64;
 
             let mut bucket = self.bucket.lock().unwrap();
-            bucket.revert_consume(size);
+            bucket.unconsume(size);
         }
     }
 
@@ -567,8 +567,8 @@ mod tests_with_manual_clock {
             self.limiter.consume(bytes)
         }
 
-        fn revert_consume(&self, bytes: usize) {
-            self.limiter.revert_consume(bytes)
+        fn unconsume(&self, bytes: usize) {
+            self.limiter.unconsume(bytes)
         }
     }
 
@@ -845,7 +845,7 @@ mod tests_with_manual_clock {
     }
 
     #[test]
-    fn revert_consume() {
+    fn unconsume() {
         let mut fx = Fixture::new();
 
         fx.spawn(|sfx| async move {
@@ -853,7 +853,7 @@ mod tests_with_manual_clock {
             assert_eq!(sfx.now(), 0);
             sfx.consume(201).await;
             assert_eq!(sfx.now(), 0);
-            sfx.revert_consume(200);
+            sfx.unconsume(200);
             sfx.consume(202).await;
             assert_eq!(sfx.now(), 0);
             sfx.consume(200).await;
@@ -865,7 +865,7 @@ mod tests_with_manual_clock {
             assert_eq!(sfx.now(), 1_177_734_375);
             sfx.consume(205).await;
             assert_eq!(sfx.now(), 2_373_046_875);
-            sfx.revert_consume(2000);
+            sfx.unconsume(2000);
         });
 
         fx.set_time(0);
