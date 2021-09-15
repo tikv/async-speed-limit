@@ -16,14 +16,7 @@
 )]
 #![allow(clippy::module_name_repetitions, clippy::must_use_candidate)]
 #![cfg_attr(feature = "read-initializer", feature(read_initializer))]
-#![cfg_attr(feature = "doc", doc = include_str!("../README.md"))]
-#![cfg_attr(
-    not(feature = "doc"),
-    doc = "
-Asynchronously speed-limiting multiple byte streams (`AsyncRead` and `AsyncWrite`).
-See README for details.
-"
-)]
+#![doc = include_str!("../README.md")]
 
 pub mod clock;
 #[cfg(feature = "futures-io")]

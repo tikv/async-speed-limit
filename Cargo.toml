@@ -1,6 +1,6 @@
 [package]
 name = "async-speed-limit"
-version = "0.3.1"
+version = "0.4.0"
 authors = ["The TiKV Project Developers"]
 license = "MIT OR Apache-2.0"
 edition = "2018"
@@ -22,12 +22,11 @@ default = ["futures-io", "fused-future", "standard-clock"]
 standard-clock = ["futures-timer"]
 fused-future = ["futures-core"]
 read-initializer = ["futures-io/unstable", "futures-io/read-initializer"]
-doc = []
 
 [dev-dependencies]
 futures-executor = "0.3.1"
 futures-util = { version = "0.3.1", default-features = false, features = ["std", "channel", "io", "io-compat"] }
-rand = "0.7.2"
+rand = "0.8.0"
 tokio = { version = "0.1.22", default-features = false, features = ["io", "rt-full", "codec"] }
 criterion = "0.3"
 

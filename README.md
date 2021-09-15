@@ -17,6 +17,7 @@ use futures_util::{
 };
 use std::{marker::Unpin, pin::Pin};
 
+#[cfg(feature = "standard-clock")]
 async fn copy_both_slowly(
     r1: impl AsyncRead,
     w1: &mut (impl AsyncWrite + Unpin),
