@@ -96,7 +96,7 @@ mod tests {
             let limiter = limiter.clone();
             let clock = clock.clone();
             async move {
-                let mut src = vec![0u8; 1024];
+                let mut src = vec![0_u8; 1024];
                 thread_rng().fill_bytes(&mut src);
                 let mut dst = Vec::new();
 
@@ -141,7 +141,7 @@ mod tests {
 
         sp.spawn({
             async move {
-                let mut src = vec![0u8; 1024];
+                let mut src = vec![0_u8; 1024];
                 thread_rng().fill_bytes(&mut src);
                 let mut dst = Vec::new();
 
@@ -170,7 +170,7 @@ mod tests {
             let limiter = limiter.clone();
             let clock = clock.clone();
             async move {
-                let mut src = vec![0u8; 1024];
+                let mut src = vec![0_u8; 1024];
                 thread_rng().fill_bytes(&mut src);
 
                 let read = BufReader::with_capacity(256, &*src);
@@ -235,7 +235,7 @@ mod tokio_tests {
         let start_time = Instant::now();
         let total = rt
             .block_on(lazy(|| {
-                let reader = repeat(50u8).take(65536);
+                let reader = repeat(50_u8).take(65536);
                 let reader = Compat::new(limiter.limit(reader.compat()));
                 copy(reader, sink())
                     .and_then(|(total, _, write)| shutdown(write).map(move |_| total))
@@ -262,7 +262,7 @@ mod tokio_tests {
         let start_time = Instant::now();
         let total = rt
             .block_on(lazy(|| {
-                let reader = repeat(50u8).take(65536);
+                let reader = repeat(50_u8).take(65536);
                 let reader = Compat::new(limiter.limit(reader.compat()));
                 copy(reader, sink())
                     .and_then(|(total, _, write)| shutdown(write).map(move |_| total))
@@ -289,10 +289,10 @@ mod tokio_tests {
         let start_time = Instant::now();
         let total = rt
             .block_on(lazy(|| {
-                let reader = repeat(50u8).take(60000);
+                let reader = repeat(50_u8).take(60000);
                 let reader = Compat::new(limiter.limit(reader.compat()));
                 FramedRead::new(reader, BytesCodec::new()).fold(0, |i, j| {
-                    assert!(j.iter().all(|b| *b == 50u8), "{} / {:?}", i, j);
+                    assert!(j.iter().all(|b| *b == 50_u8), "{} / {:?}", i, j);
                     Ok::<_, std::io::Error>(i + j.len())
                 })
             }))
