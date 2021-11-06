@@ -511,11 +511,12 @@ impl<R, C: Clock> Resource<R, C> {
     /// different `poll_***` calls should not be interleaving), while returning
     /// `Pending` until the limiter has completely consumed the result.
     #[allow(dead_code)]
-    pub(crate) fn poll_limited<T>(
+    pub(crate) fn poll_limited<T, B>(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-        length: impl FnOnce(&T) -> usize,
-        poll: impl FnOnce(Pin<&mut R>, &mut Context<'_>) -> Poll<T>,
+        mut buf: B,
+        length: impl FnOnce(&T, &B) -> usize,
+        poll: impl FnOnce(Pin<&mut R>, &mut Context<'_>, &mut B) -> Poll<T>,
     ) -> Poll<T> {
         let this = self.project();
 
@@ -527,9 +528,9 @@ impl<R, C: Clock> Resource<R, C> {
             *this.waiter = None;
         }
 
-        let res = poll(this.resource, cx);
+        let res = poll(this.resource, cx, &mut buf);
         if let Poll::Ready(obj) = &res {
-            let len = length(obj);
+            let len = length(obj, &buf);
             if len > 0 {
                 *this.waiter = Some(this.limiter.consume(len));
             }

@@ -16,6 +16,7 @@ futures-timer = { version = "3.0.2", optional = true }
 futures-io = { version = "0.3.1", optional = true }
 futures-core = { version = "0.3.1", optional = true }
 pin-project-lite = "0.2.0"
+tokio = { version = "1", optional = true }
 
 [features]
 default = ["futures-io", "fused-future", "standard-clock"]
@@ -27,7 +28,8 @@ read-initializer = ["futures-io/unstable", "futures-io/read-initializer"]
 futures-executor = "0.3.1"
 futures-util = { version = "0.3.1", default-features = false, features = ["std", "channel", "io", "io-compat"] }
 rand = "0.8.0"
-tokio = { version = "0.1.22", default-features = false, features = ["io", "rt-full", "codec"] }
+tokio = { version = "1", features = ["io-util", "rt", "macros"] }
+tokio-util = { version = "0.6.9", features = ["codec"] }
 criterion = "0.3"
 
 [[bench]]
