@@ -511,11 +511,12 @@ impl<R, C: Clock> Resource<R, C> {
     /// different `poll_***` calls should not be interleaving), while returning
     /// `Pending` until the limiter has completely consumed the result.
     #[allow(dead_code)]
-    pub(crate) fn poll_limited<T>(
+    pub(crate) fn poll_limited<T, B>(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-        length: impl FnOnce(&T) -> usize,
-        poll: impl FnOnce(Pin<&mut R>, &mut Context<'_>) -> Poll<T>,
+        mut buf: B,
+        length: impl FnOnce(&T, &B) -> usize,
+        poll: impl FnOnce(Pin<&mut R>, &mut Context<'_>, &mut B) -> Poll<T>,
     ) -> Poll<T> {
         let this = self.project();
 
@@ -527,9 +528,9 @@ impl<R, C: Clock> Resource<R, C> {
             *this.waiter = None;
         }
 
-        let res = poll(this.resource, cx);
+        let res = poll(this.resource, cx, &mut buf);
         if let Poll::Ready(obj) = &res {
-            let len = length(obj);
+            let len = length(obj, &buf);
             if len > 0 {
                 *this.waiter = Some(this.limiter.consume(len));
             }
@@ -568,7 +569,7 @@ mod tests_with_manual_clock {
         }
 
         fn unconsume(&self, bytes: usize) {
-            self.limiter.unconsume(bytes)
+            self.limiter.unconsume(bytes);
         }
     }
 
@@ -1112,7 +1113,7 @@ mod tests_with_standard_clock {
                         // tests for 2 seconds.
                         let until = Instant::now() + Duration::from_secs(2);
                         while Instant::now() < until {
-                            let size = thread_rng().gen_range(1..1 + target / 10);
+                            let size = thread_rng().gen_range(1..=target / 10);
                             limiter.consume(size).await;
                         }
                     })
@@ -1129,7 +1130,7 @@ mod tests_with_standard_clock {
                     "rate: {} threads, expected speed {} B/s, actual speed {:.0} B/s, elapsed {:?}",
                     i, speed_limit, speed, elapsed
                 );
-                assert!(0.80 <= diff_ratio && diff_ratio <= 1.25);
+                assert!((0.80..=1.25).contains(&diff_ratio));
                 assert!(elapsed <= Duration::from_secs(4));
             }
         }
@@ -1155,7 +1156,7 @@ mod tests_with_standard_clock {
                             // tests for 2 seconds.
                             let until = Instant::now() + Duration::from_secs(2);
                             while Instant::now() < until {
-                                let size = thread_rng().gen_range(1..1 + target / 10);
+                                let size = thread_rng().gen_range(1..=target / 10);
                                 limiter.blocking_consume(size);
                             }
                         })
@@ -1175,7 +1176,7 @@ mod tests_with_standard_clock {
                     "block: {} threads, expected speed {} B/s, actual speed {:.0} B/s, elapsed {:?}",
                     i, speed_limit, speed, elapsed
                 );
-                assert!(0.80 <= diff_ratio && diff_ratio <= 1.25);
+                assert!((0.80..=1.25).contains(&diff_ratio));
                 assert!(elapsed <= Duration::from_secs(4));
             }
         }

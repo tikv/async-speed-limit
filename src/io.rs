@@ -1,22 +1,17 @@
 // Copyright 2019 TiKV Project Authors. Licensed under MIT or Apache-2.0.
 
 use crate::{clock::Clock, limiter::Resource};
-use futures_io::{AsyncRead, AsyncWrite};
 use std::{
     io::{self, IoSlice, IoSliceMut},
     pin::Pin,
     task::{Context, Poll},
 };
 
-fn length_of_result_usize(a: &io::Result<usize>) -> usize {
-    if let Ok(s) = a {
-        *s
-    } else {
-        0
-    }
+fn length_of_result_usize<B>(a: &io::Result<usize>, _: &B) -> usize {
+    *a.as_ref().unwrap_or(&0)
 }
 
-impl<R: AsyncRead, C: Clock> AsyncRead for Resource<R, C> {
+impl<R: futures_io::AsyncRead, C: Clock> futures_io::AsyncRead for Resource<R, C> {
     #[cfg(feature = "read-initializer")]
     #[allow(unsafe_code)]
     unsafe fn initializer(&self) -> io::Initializer {
@@ -28,7 +23,9 @@ impl<R: AsyncRead, C: Clock> AsyncRead for Resource<R, C> {
         cx: &mut Context<'_>,
         buf: &mut [u8],
     ) -> Poll<io::Result<usize>> {
-        self.poll_limited(cx, length_of_result_usize, |r, cx| r.poll_read(cx, buf))
+        self.poll_limited(cx, (), length_of_result_usize, |r, cx, _| {
+            r.poll_read(cx, buf)
+        })
     }
 
     fn poll_read_vectored(
@@ -36,19 +33,21 @@ impl<R: AsyncRead, C: Clock> AsyncRead for Resource<R, C> {
         cx: &mut Context<'_>,
         bufs: &mut [IoSliceMut<'_>],
     ) -> Poll<io::Result<usize>> {
-        self.poll_limited(cx, length_of_result_usize, |r, cx| {
+        self.poll_limited(cx, (), length_of_result_usize, |r, cx, _| {
             r.poll_read_vectored(cx, bufs)
         })
     }
 }
 
-impl<R: AsyncWrite, C: Clock> AsyncWrite for Resource<R, C> {
+impl<R: futures_io::AsyncWrite, C: Clock> futures_io::AsyncWrite for Resource<R, C> {
     fn poll_write(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
-        self.poll_limited(cx, length_of_result_usize, |r, cx| r.poll_write(cx, buf))
+        self.poll_limited(cx, (), length_of_result_usize, |r, cx, _| {
+            r.poll_write(cx, buf)
+        })
     }
 
     fn poll_write_vectored(
@@ -56,7 +55,7 @@ impl<R: AsyncWrite, C: Clock> AsyncWrite for Resource<R, C> {
         cx: &mut Context<'_>,
         bufs: &[IoSlice<'_>],
     ) -> Poll<io::Result<usize>> {
-        self.poll_limited(cx, length_of_result_usize, |r, cx| {
+        self.poll_limited(cx, (), length_of_result_usize, |r, cx, _| {
             r.poll_write_vectored(cx, bufs)
         })
     }
@@ -67,6 +66,49 @@ impl<R: AsyncWrite, C: Clock> AsyncWrite for Resource<R, C> {
 
     fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         self.get_pin_mut().poll_close(cx)
+    }
+}
+
+#[cfg(feature = "tokio")]
+impl<R: tokio::io::AsyncRead, C: Clock> tokio::io::AsyncRead for Resource<R, C> {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        let filled = buf.filled().len();
+
+        self.poll_limited(
+            cx,
+            buf,
+            |res: &io::Result<()>, buf| {
+                res.is_ok()
+                    .then(|| buf.filled().len() - filled)
+                    .unwrap_or_default()
+            },
+            |r, cx, buf| r.poll_read(cx, buf),
+        )
+    }
+}
+
+#[cfg(feature = "tokio")]
+impl<R: tokio::io::AsyncWrite, C: Clock> tokio::io::AsyncWrite for Resource<R, C> {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        self.poll_limited(cx, (), length_of_result_usize, |r, cx, _| {
+            r.poll_write(cx, buf)
+        })
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        self.get_pin_mut().poll_flush(cx)
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        self.get_pin_mut().poll_shutdown(cx)
     }
 }
 
@@ -96,7 +138,7 @@ mod tests {
             let limiter = limiter.clone();
             let clock = clock.clone();
             async move {
-                let mut src = vec![0u8; 1024];
+                let mut src = vec![0_u8; 1024];
                 thread_rng().fill_bytes(&mut src);
                 let mut dst = Vec::new();
 
@@ -141,7 +183,7 @@ mod tests {
 
         sp.spawn({
             async move {
-                let mut src = vec![0u8; 1024];
+                let mut src = vec![0_u8; 1024];
                 thread_rng().fill_bytes(&mut src);
                 let mut dst = Vec::new();
 
@@ -170,7 +212,7 @@ mod tests {
             let limiter = limiter.clone();
             let clock = clock.clone();
             async move {
-                let mut src = vec![0u8; 1024];
+                let mut src = vec![0_u8; 1024];
                 thread_rng().fill_bytes(&mut src);
 
                 let read = BufReader::with_capacity(256, &*src);
@@ -210,37 +252,30 @@ mod tests {
 #[cfg(test)]
 #[cfg(feature = "standard-clock")]
 mod tokio_tests {
-    use crate::Limiter;
-    use futures_util::compat::{AsyncRead01CompatExt, Compat};
     use std::{
-        io::{repeat, sink, Read},
+        io,
         time::{Duration, Instant},
     };
-    use tokio::{
-        codec::{BytesCodec, FramedRead},
-        io::{copy, shutdown},
-        prelude::{
-            future::{lazy, Future},
-            Stream,
-        },
-        runtime::Runtime,
-    };
 
-    #[test]
-    fn limited_read() {
+    use crate::Limiter;
+
+    use futures_util::{future::ok, TryStreamExt as _};
+    use tokio::io::{copy, repeat, sink, AsyncReadExt as _, AsyncWriteExt as _};
+    use tokio_util::codec::{BytesCodec, FramedRead};
+
+    #[tokio::test]
+    async fn limited_read() -> io::Result<()> {
         let limiter = <Limiter>::new(32768.0);
 
-        let mut rt = Runtime::new().unwrap();
-
         let start_time = Instant::now();
-        let total = rt
-            .block_on(lazy(|| {
-                let reader = repeat(50u8).take(65536);
-                let reader = Compat::new(limiter.limit(reader.compat()));
-                copy(reader, sink())
-                    .and_then(|(total, _, write)| shutdown(write).map(move |_| total))
-            }))
-            .unwrap();
+
+        let reader = repeat(50).take(65536);
+        let mut reader = limiter.limit(reader);
+
+        let mut sink = sink();
+        let total = copy(&mut reader, &mut sink).await?;
+        sink.shutdown().await?;
+
         let elapsed = start_time.elapsed();
 
         assert!(
@@ -250,24 +285,22 @@ mod tokio_tests {
         );
         assert_eq!(total, 65536);
 
-        rt.shutdown_now().wait().unwrap();
+        Ok(())
     }
 
-    #[test]
-    fn unlimited_read() {
+    #[tokio::test]
+    async fn unlimited_read() -> io::Result<()> {
         let limiter = <Limiter>::new(std::f64::INFINITY);
 
-        let mut rt = Runtime::new().unwrap();
-
         let start_time = Instant::now();
-        let total = rt
-            .block_on(lazy(|| {
-                let reader = repeat(50u8).take(65536);
-                let reader = Compat::new(limiter.limit(reader.compat()));
-                copy(reader, sink())
-                    .and_then(|(total, _, write)| shutdown(write).map(move |_| total))
-            }))
-            .unwrap();
+
+        let reader = repeat(50).take(65536);
+        let mut reader = limiter.limit(reader);
+        let mut sink = sink();
+
+        let total = copy(&mut reader, &mut sink).await?;
+        sink.shutdown().await?;
+
         let elapsed = start_time.elapsed();
 
         assert!(
@@ -277,26 +310,25 @@ mod tokio_tests {
         );
         assert_eq!(total, 65536);
 
-        rt.shutdown_now().wait().unwrap();
+        Ok(())
     }
 
-    #[test]
-    fn limited_read_byte_stream() {
+    #[tokio::test]
+    async fn limited_read_byte_stream() -> io::Result<()> {
         let limiter = <Limiter>::new(30000.0);
 
-        let mut rt = Runtime::new().unwrap();
-
         let start_time = Instant::now();
-        let total = rt
-            .block_on(lazy(|| {
-                let reader = repeat(50u8).take(60000);
-                let reader = Compat::new(limiter.limit(reader.compat()));
-                FramedRead::new(reader, BytesCodec::new()).fold(0, |i, j| {
-                    assert!(j.iter().all(|b| *b == 50u8), "{} / {:?}", i, j);
-                    Ok::<_, std::io::Error>(i + j.len())
-                })
-            }))
-            .unwrap();
+
+        let reader = repeat(50).take(60000);
+        let reader = limiter.limit(reader);
+
+        let total = FramedRead::new(reader, BytesCodec::new())
+            .try_fold(0, |i, j| {
+                assert!(j.iter().all(|b| *b == 50_u8), "{} / {:?}", i, j);
+                ok(i + j.len())
+            })
+            .await?;
+
         let elapsed = start_time.elapsed();
 
         assert!(
@@ -306,6 +338,6 @@ mod tokio_tests {
         );
         assert_eq!(total, 60000);
 
-        rt.shutdown_now().wait().unwrap();
+        Ok(())
     }
 }

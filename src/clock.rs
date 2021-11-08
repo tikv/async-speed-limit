@@ -247,7 +247,7 @@ mod tests {
         assert_eq!(t2, Nanoseconds(1_000_000_000));
         assert_eq!(t2 - t1, Duration::from_secs(1));
 
-        clock.clone().set_time(Nanoseconds(1_000_000_007));
+        clock.set_time(Nanoseconds(1_000_000_007));
 
         let t3 = clock.now();
         assert_eq!(t3, Nanoseconds(1_000_000_007));
@@ -334,6 +334,6 @@ mod tests {
             Duration::from_millis(900) <= res && res <= Duration::from_millis(1100),
             "standard clock slept too long at {:?}",
             res
-        )
+        );
     }
 }
