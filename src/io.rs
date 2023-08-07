@@ -12,12 +12,6 @@ fn length_of_result_usize<B>(a: &io::Result<usize>, _: &B) -> usize {
 }
 
 impl<R: futures_io::AsyncRead, C: Clock> futures_io::AsyncRead for Resource<R, C> {
-    #[cfg(feature = "read-initializer")]
-    #[allow(unsafe_code)]
-    unsafe fn initializer(&self) -> io::Initializer {
-        self.get_ref().initializer()
-    }
-
     fn poll_read(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
