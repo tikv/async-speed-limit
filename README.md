@@ -68,7 +68,7 @@ the types.
 | **standard-clock** (default) | [futures-timer] | Enables the `clock::StandardClock` struct.                                                |
 | **fused-future** (default)   | [futures-core]  | Implements `FusedFuture` on `limiter::Consume`.                                           |
 | **futures-io** (default)     | [futures-io]    | Implements `AsyncRead` and `AsyncWrite` on `limiter::Resource`.                           |
-| **read-initializer**         | [futures-io]    | Implements `AsyncRead::initializer`.<br>Unstable and requires nightly compiler to enable. |
+| ~~**read-initializer**~~     | -               | Deprecated and does nothing. This feature has been removed since `futures-io 0.3.19`.     |
 
 [futures-core]: https://crates.io/crates/futures-core
 [futures-io]: https://crates.io/crates/futures-io

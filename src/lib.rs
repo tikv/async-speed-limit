@@ -15,7 +15,6 @@
     clippy::pedantic
 )]
 #![allow(clippy::module_name_repetitions, clippy::must_use_candidate)]
-#![cfg_attr(feature = "read-initializer", feature(read_initializer))]
 #![doc = include_str!("../README.md")]
 
 pub mod clock;
